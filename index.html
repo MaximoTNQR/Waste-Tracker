@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clothing Waste Tracker</title>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #f6f7f4; --card: #ffffff; --text: #1f2a24; --muted: #5d6b63;
+    --border: #d9ded8; --accent: #2f7d5b; --accent-text: #ffffff; --note: #e8f3ed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141a17; --card: #1d2621; --text: #e8efe9; --muted: #9db0a4;
+      --border: #33423a; --accent: #4fb88a; --accent-text: #0e1713; --note: #223229;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141a17; --card: #1d2621; --text: #e8efe9; --muted: #9db0a4;
+    --border: #33423a; --accent: #4fb88a; --accent-text: #0e1713; --note: #223229;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+  main { max-width: 560px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+  label { display: block; font-weight: 600; margin: 10px 0 4px; }
+  input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 1rem; border-radius: 8px;
+          border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  button { margin-top: 16px; width: 100%; padding: 12px; font-size: 1rem; font-weight: 600; border: 0;
+           border-radius: 8px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  #results { display: none; }
+  .chart-box { position: relative; max-width: 340px; margin: 0 auto; }
+  ul { padding-left: 20px; }
+  .msg { background: var(--note); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+  .fact { border-left: 4px solid var(--accent); padding-left: 12px; }
+  .error { color: #c0392b; margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>♻️ Clothing Waste Tracker</h1>
+  <p class="sub">Enter how many clothing items you reused, recycled, bought, donated and threw away.</p>
+
+  <div class="card">
+    <!-- INPUT: one number field per category -->
+    <label for="reused">Reused</label><input id="reused" type="number" min="0" value="0">
+    <label for="recycled">Recycled</label><input id="recycled" type="number" min="0" value="0">
+    <label for="bought">Bought</label><input id="bought" type="number" min="0" value="0">
+    <label for="donated">Donated</label><input id="donated" type="number" min="0" value="0">
+    <label for="thrown">Thrown</label><input id="thrown" type="number" min="0" value="0">
+    <button type="button" id="go">Show my results</button>
+    <div class="error" id="error"></div>
+  </div>
+
+  <div id="results">
+    <div class="card">
+      <div class="chart-box"><canvas id="chart"></canvas></div>
+      <ul id="percentList"></ul>
+    </div>
+    <div class="card" id="messagesCard"></div>
+    <div class="card">
+      <strong>Fun fact</strong>
+      <p class="fact" id="fact"></p>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  // The 7 fun facts. A random number from 1 to 7 picks one of them.
+  const facts = {
+    1: "Making one cotton T-shirt can take around 2,700 liters of water.",
+    2: "The average person in the US throws away roughly 37 kg of clothing every year.",
+    3: "Synthetic fabrics like polyester can take hundreds of years to break down in a landfill.",
+    4: "Washing synthetic clothes releases tiny microplastics into waterways.",
+    5: "Wearing a garment for just nine more months can cut its environmental footprint by around 20–30%.",
+    6: "Less than 1% of clothing is recycled into new clothing.",
+    7: "A single pair of jeans can need about 7,500 liters of water to produce."
+  };
+
+  const categories = ["Reused", "Recycled", "Bought", "Donated", "Thrown"];
+  const ids = ["reused", "recycled", "bought", "donated", "thrown"];
+  let chart = null; // keeps the current chart so we can replace it
+
+  document.getElementById("go").addEventListener("click", calculate);
+
+  function calculate() {
+    // 1) Read the values the user typed
+    const values = ids.map(id => Math.max(0, Number(document.getElementById(id).value) || 0));
+
+    // 2) Add everything: this total is 100%
+    const total = values.reduce((sum, v) => sum + v, 0);
+    const error = document.getElementById("error");
+    if (total === 0) {
+      error.textContent = "Please enter at least one number greater than 0.";
+      document.getElementById("results").style.display = "none";
+      return;
+    }
+    error.textContent = "";
+
+    // 3) What % of the 100% is each category?
+    const percents = values.map(v => (v / total) * 100);
+    const pct = {};
+    categories.forEach((name, i) => pct[name] = percents[i]);
+
+    // 4) Flowchart conditions (all in %)
+    const messages = [];
+    if (pct.Thrown <= 30)  messages.push("It’s better to donate or recycle");
+    if (pct.Bought >= 50)  messages.push("Reduce the amount of purchases");
+    if (pct.Donated >= 40) messages.push("You’re doing it great");
+
+    // 5) Draw the graph
+    drawChart(values, percents);
+
+    // 6) Show percentages
+    document.getElementById("percentList").innerHTML = categories
+      .map((name, i) => `<li>${name}: ${values[i]} items (${percents[i].toFixed(1)}%)</li>`)
+      .join("");
+
+    // 7) Show messages from the flowchart
+    document.getElementById("messagesCard").innerHTML = messages.length
+      ? messages.map(m => `<div class="msg">${m}</div>`).join("")
+      : "<span>No special messages this time.</span>";
+
+    // 8) Random fun fact (1 to 7)
+    const n = Math.floor(Math.random() * 7) + 1;
+    document.getElementById("fact").textContent = facts[n];
+
+    document.getElementById("results").style.display = "block";
+  }
+
+  function drawChart(values, percents) {
+    if (chart) chart.destroy(); // remove the old chart before drawing a new one
+    const textColor = getComputedStyle(document.documentElement).getPropertyValue("--text").trim();
+    chart = new Chart(document.getElementById("chart"), {
+      type: "pie",
+      data: {
+        labels: categories.map((c, i) => c + " " + percents[i].toFixed(1) + "%"),
+        datasets: [{
+          data: values,
+          backgroundColor: ["#2f7d5b", "#4fb88a", "#e0a030", "#4a90c2", "#c0594a"]
+        }]
+      },
+      options: { plugins: { legend: { position: "bottom", labels: { color: textColor } } } }
+    });
+  }
+</script>
+</body>
+</html>
